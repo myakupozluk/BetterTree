@@ -1,0 +1,89 @@
+#!/bin/bash
+
+max_depth=${1:-0}
+file_count=0
+dir_count=0
+
+is_text_file() {
+    local file="$1"
+    local mimetype
+    mimetype=$(file --mime-type -b "$file")
+    if [[ $mimetype == text/* ]]; then
+        return 0
+    fi
+    case "${file,,}" in
+        *.txt|*.java|*.c|*.cpp|*.h|*.py|*.sh|*.md|*.log|*.xml|*.json|*.csv|*.ini|*.conf|*.yaml|*.yml)
+            return 0
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+}
+
+draw_tree() {
+    local dir_path="$1"
+    local prefix="$2"
+    local current_depth="$3"
+
+    if [[ $max_depth -ne 0 && $current_depth -gt $max_depth ]]; then
+        return
+    fi
+
+    local entries=()
+    while IFS= read -r -d $'\0' entry; do
+        entries+=("$entry")
+    done < <(find "$dir_path" -mindepth 1 -maxdepth 1 -print0 | sort -z)
+
+    local total=${#entries[@]}
+    local count=0
+
+    for entry in "${entries[@]}"; do
+        count=$((count + 1))
+        local name=$(basename "$entry")
+        local connector="├── "
+        local new_prefix="$prefix│   "
+        if [[ $count -eq $total ]]; then
+            connector="└── "
+            new_prefix="$prefix    "
+        fi
+
+        if [[ -d "$entry" ]]; then
+            echo "${prefix}${connector}${name}"
+            dir_count=$((dir_count + 1))
+            draw_tree "$entry" "$new_prefix" $((current_depth + 1))
+        elif [[ -f "$entry" ]]; then
+            echo "${prefix}${connector}${name}"
+            file_count=$((file_count + 1))
+            if is_text_file "$entry"; then
+                echo "${new_prefix}└── Content:"
+                echo "" >> "$entry"
+                cat "$entry" | while IFS= read -r line; do
+                    echo "${new_prefix}    $line"
+                done
+                sed -i '$d' "$entry"
+            fi
+        fi
+    done
+}
+
+if [[ "$1" == "--help" ]]; then
+    cat << EOF
+Usage: bettertree [DEPTH]
+
+Displays a directory tree similar to 'tree'.
+For text files, it prints the full content.
+
+Arguments:
+  DEPTH    Optional. Maximum directory depth to display.
+
+Example:
+  bettertree 2
+EOF
+    exit 0
+fi
+
+echo "."
+draw_tree "." "" 1
+echo
+echo "$dir_count directories, $file_count files"
